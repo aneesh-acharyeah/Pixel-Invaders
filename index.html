@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Neon Dodger — JS Canvas Game</title>
+  <style>
+    :root{
+      --bg:#0b1020;            /* deep space */
+      --fg:#e6f1ff;            /* soft white */
+      --neon:#56ccf2;          /* cyan */
+      --neon2:#a86af9;         /* purple */
+      --accent:#38ef7d;        /* green */
+      --danger:#ff5c8a;        /* pink */
+    }
+    html,body{height:100%;margin:0;background:radial-gradient(1200px 600px at 20% 10%,#111b3a 0%,#0b1020 60%,#070c18 100%);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;}
+    #wrap{position:relative;display:grid;place-items:center;height:100vh;overflow:hidden}
+    canvas{width:100vw;height:100vh;display:block;filter:drop-shadow(0 0 6px rgba(86,204,242,.35));}
+
+    /* UI overlay */
+    .hud{position:absolute;inset:0;pointer-events:none;}
+    .bar{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;gap:12px;padding:14px 16px;font-weight:600;letter-spacing:.5px}
+    .score{font-variant-numeric:tabular-nums}
+    .pill{background:linear-gradient(90deg,rgba(168,106,249,.2),rgba(86,204,242,.2));border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);padding:6px 12px;border-radius:999px;display:inline-flex;gap:10px;align-items:center}
+    .btns{position:absolute;right:16px;bottom:16px;display:flex;gap:10px;pointer-events:auto}
+    .btn{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:var(--fg);padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:600;letter-spacing:.4px;transition:.15s transform,.15s background}
+    .btn:active{transform:scale(.98)}
+    .btn:hover{background:rgba(255,255,255,.07)}
+
+    /* Center overlays */
+    .center{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+    .card{pointer-events:auto;max-width:620px;padding:28px 28px 22px;border-radius:20px;border:1px solid rgba(255,255,255,.12);background:linear-gradient(180deg,rgba(168,106,249,.09),rgba(86,204,242,.06));backdrop-filter:blur(10px);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+    h1{margin:0 0 6px;font-size:clamp(28px,5vw,42px);letter-spacing:.5px}
+    p{margin:8px 0 0;opacity:.9}
+    .cta{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+    .cta .btn{font-size:16px}
+
+    /* Mobile controls */
+    .touch-hint{position:absolute;left:16px;bottom:16px;opacity:.9}
+    @media (hover:none){
+      .touchOnly{display:block}
+    }
+    .touchOnly{display:none}
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="1000" height="600" aria-label="Neon Dodger canvas"></canvas>
+
+  <div class="hud" aria-live="polite" aria-atomic="true">
+    <div class="bar">
+      <div class="pill"><span>🕹️ Neon Dodger</span></div>
+      <div class="pill score"><span id="score">0</span> <span style="opacity:.7">pts</span></div>
+      <div class="pill score" title="Personal Best"><span>🏆</span><span id="best">0</span></div>
+    </div>
+    <div class="btns">
+      <button class="btn" id="pauseBtn" title="Pause (P)">⏸️ Pause</button>
+      <button class="btn" id="restartBtn" title="Restart (R)">🔁 Restart</button>
+    </div>
+    <div class="touch-hint touchOnly pill">Tap left/right to dash · Tap top to jump</div>
+  </div>
+
+  <!-- Start Screen -->
+  <div id="start" class="center">
+    <div class="card">
+      <h1>Neon Dodger</h1>
+      <p>Dash, jump, and weave through procedurally generated obstacles. Survive as long as possible to set a new high score.</p>
+      <div class="cta">
+        <button class="btn" id="playBtn">▶️ Play</button>
+        <button class="btn" id="howBtn">📜 How to play</button>
+        <a class="btn" id="ghBtn" href="#" target="_blank" rel="noopener">⭐ Add to GitHub</a>
+      </div>
+      <p style="opacity:.8;margin-top:6px">Controls: <strong>Left / Right</strong> to dash · <strong>Up / Space</strong> to jump · <strong>P</strong> to pause · <strong>R</strong> to restart</p>
+    </div>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="over" class="center" style="display:none">
+    <div class="card">
+      <h1>Game Over</h1>
+      <p>Your score: <strong id="finalScore">0</strong></p>
+      <p>Best: <strong id="finalBest">0</strong></p>
+      <div class="cta">
+        <button class="btn" id="againBtn">🔁 Play again</button>
+        <button class="btn" id="shareBtn">📣 Share</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  // Scale canvas for device pixel ratio
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  function resize(){
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    canvas.style.width = w+'px';
+    canvas.style.height = h+'px';
+    canvas.width = Math.floor(w * DPR);
+    canvas.height = Math.floor(h * DPR);
+  }
+  addEventListener('resize', resize, {passive:true});
+  resize();
+
+  // UI elements
+  const startUI = document.getElementById('start');
+  const overUI = document.getElementById('over');
+  const playBtn = document.getElementById('playBtn');
+  const howBtn = document.getElementById('howBtn');
+  const ghBtn = document.getElementById('ghBtn');
+  const againBtn = document.getElementById('againBtn');
+  const shareBtn = document.getElementById('shareBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const restartBtn = document.getElementById('restartBtn');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const finalScoreEl = document.getElementById('finalScore');
+  const finalBestEl = document.getElementById('finalBest');
+
+  // Persistent best score
+  const BEST_KEY = 'neon_dodger_best_v1';
+  let BEST = Number(localStorage.getItem(BEST_KEY) || 0);
+  bestEl.textContent = BEST;
+
+  // Game state
+  let running = false;
+  let paused = false;
+  let time = 0;           // ms
+  let last = 0;           // timestamp
+  let score = 0;
+
+  // World
+  const world = {
+    gravity: 2200,         // px/s^2
+    floor: () => canvas.height - 120 * DPR,
+    lanes: () => [0.24, 0.5, 0.76].map(p => Math.floor(canvas.width * p)), // lane x positions
+    speed: 260,            // base px/s
+  };
+
+  // Player
+  const player = {
+    x: 0, y: 0, vx: 0, vy: 0,
+    size: 26, lane: 1, onGround: true,
+    color1: '#56ccf2', color2: '#a86af9',
+  };
+
+  function resetPlayer(){
+    const lanes = world.lanes();
+    player.lane = 1;
+    player.x = lanes[player.lane];
+    player.y = world.floor() - 60 * DPR;
+    player.vx = 0; player.vy = 0; player.onGround = true;
+  }
+
+  // Obstacles
+  const obstacles = [];
+  function spawnObstacle(){
+    const lanes = world.lanes();
+    const lane = Math.floor(Math.random()*3);
+    const type = Math.random() < 0.55 ? 'bar' : 'gate';
+    const w = (type==='bar'? 38: 22) * DPR;
+    const h = (type==='bar'? 80: 150) * DPR;
+    const gap = 28 * DPR;
+    obstacles.push({
+      type,
+      x: canvas.width + w + 60*DPR,
+      y: world.floor() - (type==='bar'? h : h + gap),
+      w, h, lane,
+      passed:false,
+    });
+  }
+
+  // Particles for flair
+  const particles = [];
+  function addParticles(x,y,n=10){
+    for(let i=0;i<n;i++){
+      particles.push({
+        x, y,
+        vx:(Math.random()*2-1)*120*DPR,
+        vy:(Math.random()*-1)*220*DPR,
+        life: 420 + Math.random()*380,
+      });
+    }
+  }
+
+  // Input
+  const keys = new Set();
+  addEventListener('keydown', e=>{
+    if(['ArrowLeft','ArrowRight','ArrowUp','Space','KeyP','KeyR'].includes(e.code)) e.preventDefault();
+    if(e.code==='KeyP') togglePause();
+    else if(e.code==='KeyR') restart();
+    keys.add(e.code);
+  });
+  addEventListener('keyup', e=> keys.delete(e.code));
+
+  // Touch: left/right sides dash, top third jump
+  addEventListener('touchstart', e=>{
+    if(!running){ start(); return; }
+    const t = e.touches[0];
+    const x = t.clientX, y=t.clientY;
+    if(y < innerHeight*0.42) jump();
+    else if(x < innerWidth*0.5) dash(-1);
+    else dash(1);
+  }, {passive:true});
+
+  function dash(dir){
+    const lanes = world.lanes();
+    player.lane = Math.max(0, Math.min(2, player.lane + (dir<0?-1:1)));
+    const targetX = lanes[player.lane];
+    player.vx = (targetX - player.x) * 7; // smooth lerp
+    addParticles(player.x, player.y, 6);
+  }
+
+  function jump(){
+    if(player.onGround){
+      player.vy = -820 * DPR; // impulse
+      player.onGround = false;
+    }
+  }
+
+  function togglePause(){
+    if(!running) return;
+    paused = !paused;
+    pauseBtn.textContent = paused ? '▶️ Resume' : '⏸️ Pause';
+    if(!paused){
+      last = performance.now();
+      loop(last);
+    }
+  }
+
+  function start(){
+    startUI.style.display='none';
+    overUI.style.display='none';
+    running = true; paused = false; score = 0; time = 0; last = performance.now();
+    obstacles.length = 0; particles.length = 0; spawnTimer = 0; difficulty = 0;
+    resetPlayer();
+    loop(last);
+  }
+
+  function gameOver(){
+    running = false;
+    overUI.style.display='grid';
+    finalScoreEl.textContent = Math.floor(score);
+    BEST = Math.max(BEST, Math.floor(score));
+    localStorage.setItem(BEST_KEY, BEST);
+    bestEl.textContent = BEST;
+    finalBestEl.textContent = BEST;
+  }
+
+  function restart(){
+    if(!running){ start(); }
+    else { // quick restart
+      running=false; start();
+    }
+  }
+
+  playBtn.onclick = start;
+  againBtn.onclick = start;
+  howBtn.onclick = ()=> alert('Controls:\n• Left / Right → Dash between lanes\n• Up Arrow or Space → Jump\n• P → Pause\n• R → Restart\n\nTip: Gates require a jump, Bars require shifting lanes. The speed ramps up the longer you survive. Good luck!');
+  ghBtn.onclick = ()=> alert('To add to GitHub: Create a new repo, add this single HTML file, push, and enable GitHub Pages to play it online!');
+  shareBtn.onclick = ()=>{
+    const txt = `I scored ${Math.floor(score)} in Neon Dodger!`;
+    if(navigator.share){ navigator.share({title:'Neon Dodger', text:txt, url:location.href}).catch(()=>{}); }
+    else { navigator.clipboard.writeText(txt).then(()=>alert('Copied to clipboard!')); }
+  };
+  pauseBtn.onclick = togglePause;
+  restartBtn.onclick = restart;
+
+  // Main loop vars
+  let spawnTimer = 0;
+  let difficulty = 0; // increases over time
+
+  function loop(ts){
+    if(!running) return;
+    if(paused) return;
+
+    const dt = Math.min(32, ts - last); // clamp 32ms
+    last = ts; time += dt;
+
+    update(dt/1000);
+    draw();
+
+    requestAnimationFrame(loop);
+  }
+
+  function update(dt){
+    // Increase difficulty: speeds up to ~2x and faster spawns
+    difficulty += dt*0.06;
+
+    // Move player towards target lane
+    player.x += player.vx * dt;
+    player.vx *= 0.86; // damping
+
+    // Gravity
+    player.vy += world.gravity * dt;
+    player.y += player.vy * dt;
+
+    const floorY = world.floor();
+    if(player.y > floorY - 60*DPR){
+      player.y = floorY - 60*DPR; player.vy = 0; player.onGround = true;
+    }
+
+    // Keyboard input
+    if(keys.has('ArrowLeft')) dash(-1);
+    if(keys.has('ArrowRight')) dash(1);
+    if(keys.has('ArrowUp') || keys.has('Space')) { jump(); keys.delete('Space'); keys.delete('ArrowUp'); }
+
+    // Spawn obstacles
+    spawnTimer -= dt;
+    const baseInterval = 1.15; // seconds
+    const interval = Math.max(0.45, baseInterval - difficulty*0.45);
+    if(spawnTimer <= 0){
+      spawnObstacle();
+      spawnTimer = interval * (0.75 + Math.random()*0.5);
+    }
+
+    // Move obstacles
+    const speed = (world.speed + difficulty*260) * DPR; // px/s
+    for(const o of obstacles){
+      o.x -= speed * dt;
+      // mark passed
+      if(!o.passed && o.x + o.w < player.x){ o.passed = true; score += 1; }
+    }
+    // Remove off-screen
+    for(let i=obstacles.length-1;i>=0;i--){ if(obstacles[i].x + obstacles[i].w < -60*DPR) obstacles.splice(i,1); }
+
+    // Particles update
+    for(const p of particles){
+      p.life -= dt*1000;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 900*DPR * dt;
+    }
+    for(let i=particles.length-1;i>=0;i--){ if(particles[i].life<=0) particles.splice(i,1); }
+
+    // Collisions
+    const px = player.x, py = player.y, ps = player.size*DPR;
+    for(const o of obstacles){
+      const ox = o.x, oy = o.y, ow = o.w, oh = o.h;
+      const hit = px-ps/2 < ox+ow && px+ps/2 > ox && py-ps/2 < oy+oh && py+ps/2 > oy;
+      if(hit){
+        addParticles(px, py, 24);
+        gameOver();
+        break;
+      }
+    }
+
+    // Score
+    scoreEl.textContent = Math.floor(score);
+  }
+
+  function drawGrid(){
+    const w = canvas.width, h = canvas.height;
+    ctx.save();
+    for(let i=0;i<20;i++){
+      const y = Math.floor(h*(i/20));
+      ctx.strokeStyle = `rgba(168,106,249,${0.03 + i*0.002})`;
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    }
+    const lanes = world.lanes();
+    lanes.forEach(x=>{
+      ctx.strokeStyle = 'rgba(86,204,242,.06)';
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  function glowRect(x,y,w,h,primary,secondary){
+    const r = 10*DPR;
+    // outer glow
+    const g = ctx.createLinearGradient(x,y,x+w,y+h);
+    g.addColorStop(0, primary);
+    g.addColorStop(1, secondary);
+    ctx.shadowBlur = 20*DPR;
+    ctx.shadowColor = primary;
+    ctx.fillStyle = g;
+    roundRect(ctx, x, y, w, h, r); ctx.fill();
+  }
+
+  function roundRect(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function draw(){
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+
+    // background vignette
+    const bg = ctx.createRadialGradient(w*0.15,h*0.15,40*DPR, w*0.5,h*0.6, Math.max(w,h));
+    bg.addColorStop(0,'#0f1a3a');
+    bg.addColorStop(1,'#0b1020');
+    ctx.fillStyle = bg; ctx.fillRect(0,0,w,h);
+
+    drawGrid();
+
+    // floor line
+    ctx.strokeStyle = 'rgba(56,239,125,.25)';
+    ctx.beginPath(); ctx.moveTo(0, world.floor()+2*DPR); ctx.lineTo(w, world.floor()+2*DPR); ctx.stroke();
+
+    // obstacles
+    for(const o of obstacles){
+      if(o.type==='bar') glowRect(o.x, o.y, o.w, o.h, '#ff5c8a', '#a86af9');
+      else glowRect(o.x, o.y, o.w, o.h, '#38ef7d', '#56ccf2');
+    }
+
+    // player
+    const ps = player.size*DPR;
+    glowRect(player.x-ps/2, player.y-ps/2, ps, ps, player.color1, player.color2);
+
+    // trail particles
+    for(const p of particles){
+      const alpha = Math.max(0, p.life/800);
+      ctx.fillStyle = `rgba(86,204,242,${alpha})`;
+      ctx.beginPath(); ctx.arc(p.x,p.y,3.5*DPR,0,Math.PI*2); ctx.fill();
+    }
+  }
+
+  // Kick off idle draw so start screen has background
+  draw();
+})();
+</script>
+</body>
+</html>
