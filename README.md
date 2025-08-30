@@ -16,7 +16,8 @@ https://github.com/aneesh-acharyeah/Pixel-Invaders.git
 ## 📂 Project Structure
 ```
 📦 pixel-invaders
- ┣ 📜 index.html   # Entire game (HTML, CSS, JS)
+ ┣ 📜 index.html
+ ┣ 📜 script.js
  ┗ 📜 README.md    # Documentation
 ```
 
