@@ -51,11 +51,6 @@ https://github.com/aneesh-acharyeah/Pixel-Invaders.git
    open index.html   # or drag it into your browser
    ```
 
-3. **Deploy to GitHub Pages**
-   - Go to your repo → Settings → Pages
-   - Set branch = `main` and folder = `/ (root)`
-   - Save → Your game will be live in a minute 🎉
-
 ---
 
 ## 🤝 Contributing
